@@ -1,7 +1,8 @@
 import express from "express";
 import http from "http";
 import WebSocket from "ws";
-import SocketIO from "socket.io";
+import { Server } from "socket.io";
+import { instrument } from "@socket.io/admin-ui";
 
 const app = express();
 
@@ -14,7 +15,16 @@ app.get("/", (req, res) => res.render("home"));
 app.get("/*", (req, res) => res.redirect("/"));
 
 const httpServer = http.createServer(app);
-const io = SocketIO(httpServer);
+const io = new Server(httpServer, {
+  cors: {
+    origin: ["https://admin.socket.io"],
+    credentials: true,
+  },
+});
+
+instrument(io, {
+  auth: false,
+});
 
 function publicRooms() {
   const {
@@ -31,15 +41,19 @@ function publicRooms() {
   return publicRooms;
 }
 
+function countRoom(roomName) {
+  return io.sockets.adapter.rooms.get(roomName)?.size;
+}
+
 io.on("connection", (socket) => {
   io.sockets.emit("room_change", publicRooms());
   socket["nickname"] = "anon";
   socket.onAny((event) => {});
   socket.on("enter_room", (roomName, done) => {
     socket.join(roomName);
-    done();
+    done(countRoom(roomName));
     console.log(socket.id, roomName, socket.rooms);
-    socket.to(roomName).emit("welcome", socket.nickname);
+    socket.to(roomName).emit("welcome", socket.nickname, countRoom(roomName));
     io.sockets.emit("room_change", publicRooms());
   });
   socket.on("new_message", (msg, room, done) => {
@@ -49,37 +63,11 @@ io.on("connection", (socket) => {
   socket.on("nickname", (nickname) => (socket["nickname"] = nickname));
   socket.on("disconnecting", () => {
     socket.rooms.forEach((room) =>
-      socket.to(room).emit("bye", socket.nickname)
+      socket.to(room).emit("bye", socket.nickname, countRoom(room) - 1)
     );
   });
   socket.on("disconnect", () => {
     io.sockets.emit("room_change", publicRooms());
   });
 });
-
-// const sockets = [];
-
-// wss.on("connection", (socket) => {
-//   sockets.push(socket);
-//   socket["nickname"] = "Anonymous";
-//   console.log("Connected to Browser");
-//   socket.on("close", () => console.log("Disconnected from the Browser"));
-//   socket.on("message", (msg) => {
-//     const message = JSON.parse(Buffer.from(msg, "base64").toString("utf-8"));
-//     switch (message.type) {
-//       case "new_message":
-//         sockets.forEach((aSocket) =>
-//           aSocket.send(`${socket.nickname}: ${message.payload}`)
-//         );
-//         break;
-//       case "nickname":
-//         socket["nickname"] = message.payload;
-//         break;
-//       default:
-//         break;
-//     }
-//   });
-//   socket.send("Hello!");
-// });
-
 httpServer.listen(5000, () => console.log("server running"));
