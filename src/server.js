@@ -15,12 +15,27 @@ app.get("/*", (req, res) => res.redirect("/"));
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const sockets = [];
+
 wss.on("connection", (socket) => {
+  sockets.push(socket);
+  socket["nickname"] = "Anonymous";
   console.log("Connected to Browser");
   socket.on("close", () => console.log("Disconnected from the Browser"));
-  socket.on("message", (message) => {
-    console.log(Buffer.from(message, "base64").toString("utf-8"));
-    socket.send("recevied your message");
+  socket.on("message", (msg) => {
+    const message = JSON.parse(Buffer.from(msg, "base64").toString("utf-8"));
+    switch (message.type) {
+      case "new_message":
+        sockets.forEach((aSocket) =>
+          aSocket.send(`${socket.nickname}: ${message.payload}`)
+        );
+        break;
+      case "nickname":
+        socket["nickname"] = message.payload;
+        break;
+      default:
+        break;
+    }
   });
   socket.send("Hello!");
 });
