@@ -3,6 +3,7 @@ import http from "http";
 import WebSocket from "ws";
 import { Server } from "socket.io";
 import { instrument } from "@socket.io/admin-ui";
+import SocketIO from "socket.io";
 
 const app = express();
 
@@ -15,59 +16,6 @@ app.get("/", (req, res) => res.render("home"));
 app.get("/*", (req, res) => res.redirect("/"));
 
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: ["https://admin.socket.io"],
-    credentials: true,
-  },
-});
+const wsServer = SocketIO(httpServer);
 
-instrument(io, {
-  auth: false,
-});
-
-function publicRooms() {
-  const {
-    sockets: {
-      adapter: { sids, rooms },
-    },
-  } = io;
-  const publicRooms = [];
-  rooms.forEach((_, key) => {
-    if (sids.get(key) === undefined) {
-      publicRooms.push(key);
-    }
-  });
-  return publicRooms;
-}
-
-function countRoom(roomName) {
-  return io.sockets.adapter.rooms.get(roomName)?.size;
-}
-
-io.on("connection", (socket) => {
-  io.sockets.emit("room_change", publicRooms());
-  socket["nickname"] = "anon";
-  socket.onAny((event) => {});
-  socket.on("enter_room", (roomName, done) => {
-    socket.join(roomName);
-    done(countRoom(roomName));
-    console.log(socket.id, roomName, socket.rooms);
-    socket.to(roomName).emit("welcome", socket.nickname, countRoom(roomName));
-    io.sockets.emit("room_change", publicRooms());
-  });
-  socket.on("new_message", (msg, room, done) => {
-    socket.to(room).emit("new_message", `${socket.nickname}: ${msg}`);
-    done();
-  });
-  socket.on("nickname", (nickname) => (socket["nickname"] = nickname));
-  socket.on("disconnecting", () => {
-    socket.rooms.forEach((room) =>
-      socket.to(room).emit("bye", socket.nickname, countRoom(room) - 1)
-    );
-  });
-  socket.on("disconnect", () => {
-    io.sockets.emit("room_change", publicRooms());
-  });
-});
 httpServer.listen(5000, () => console.log("server running"));
